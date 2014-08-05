@@ -37,9 +37,14 @@
 #include <errno.h>
 #include <ctype.h>
 
+#include "system_diff.h"
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
+
+#if defined(_WIN32)
+#include <winsock.h>
+#endif
 
 static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
@@ -399,7 +404,8 @@ static int processBulkItem(redisReader *r) {
     if (s != NULL) {
         p = r->buf+r->pos;
         bytelen = s-(r->buf+r->pos)+2; /* include \r\n */
-        len = readLongLong(p);
+        // TODO: Fix this properly
+        len = (long)readLongLong(p);
 
         if (len < 0) {
             /* The nil object can always be created. */
@@ -454,7 +460,7 @@ static int processMultiBulkItem(redisReader *r) {
     }
 
     if ((p = readLine(r,NULL)) != NULL) {
-        elements = readLongLong(p);
+        elements = (long)readLongLong(p);
         root = (r->ridx == 0);
 
         if (elements == -1) {
@@ -880,7 +886,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
 
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
-        pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
+        pos += sprintf(cmd+pos,"$" zu "\r\n",sdslen(curargv[j]));
         memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
         pos += sdslen(curargv[j]);
         sdsfree(curargv[j]);
@@ -957,7 +963,7 @@ int redisFormatCommandArgv(char **target, int argc, const char **argv, const siz
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
-        pos += sprintf(cmd+pos,"$%zu\r\n",len);
+        pos += sprintf(cmd+pos,"$" zu "\r\n",len);
         memcpy(cmd+pos,argv[j],len);
         pos += len;
         cmd[pos++] = '\r';
@@ -1049,6 +1055,7 @@ redisContext *redisConnectNonBlock(const char *ip, int port) {
     return c;
 }
 
+#if !defined(_WIN32)
 redisContext *redisConnectUnix(const char *path) {
     redisContext *c;
 
@@ -1084,6 +1091,7 @@ redisContext *redisConnectUnixNonBlock(const char *path) {
     redisContextConnectUnix(c,path,NULL);
     return c;
 }
+#endif
 
 /* Set read/write timeout on a blocking socket. */
 int redisSetTimeout(redisContext *c, struct timeval tv) {
@@ -1114,6 +1122,14 @@ int redisBufferRead(redisContext *c) {
 
     nread = read(c->fd,buf,sizeof(buf));
     if (nread == -1) {
+#if defined(_WIN32)
+        if (WSAGetLastError() == WSAETIMEDOUT) {
+            errno = EAGAIN;
+            __redisSetError(c,REDIS_ERR_IO,NULL);
+            return REDIS_ERR;
+        }
+#endif
+        //sprintf(buf, "%d", WSAGetLastError());
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
         } else {

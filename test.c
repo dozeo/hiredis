@@ -12,6 +12,14 @@
 
 #include "hiredis.h"
 
+#include "system_diff.h"
+
+#if defined(_WIN32)
+#include <winsock.h>
+int gettimeofday(struct timeval *tv, const char *tz);
+int hiredis_win_init();
+#endif
+
 enum connection_type {
     CONN_TCP,
     CONN_UNIX
@@ -79,13 +87,15 @@ static void disconnect(redisContext *c) {
     redisFree(c);
 }
 
-static redisContext *connect(struct config config) {
+static redisContext *connect_test(struct config config) {
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
         c = redisConnect(config.tcp.host, config.tcp.port);
+#if !defined(_WIN32)
     } else if (config.type == CONN_UNIX) {
         c = redisConnectUnix(config.unix.path);
+#endif
     } else {
         assert(NULL);
     }
@@ -185,23 +195,27 @@ static void test_format_commands(void) {
     len = redisFormatCommand(&cmd,"key:%08p %b",(void*)1234,"foo",3);
     test_cond(len == -1);
 
-    const char *argv[3];
-    argv[0] = "SET";
-    argv[1] = "foo\0xxx";
-    argv[2] = "bar";
-    size_t lens[3] = { 3, 7, 3 };
-    int argc = 3;
+    {
+        const char *argv[3];
+        size_t lens[3] = { 3, 7, 3 };
+        int argc = 3;
 
-    test("Format command by passing argc/argv without lengths: ");
-    len = redisFormatCommandArgv(&cmd,argc,argv,NULL);
-    test_cond(strncmp(cmd,"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n",len) == 0 &&
-        len == 4+4+(3+2)+4+(3+2)+4+(3+2));
-    free(cmd);
+        argv[0] = "SET";
+        argv[1] = "foo\0xxx";
+        argv[2] = "bar";
 
-    test("Format command by passing argc/argv with lengths: ");
-    len = redisFormatCommandArgv(&cmd,argc,argv,lens);
-    test_cond(strncmp(cmd,"*3\r\n$3\r\nSET\r\n$7\r\nfoo\0xxx\r\n$3\r\nbar\r\n",len) == 0 &&
-        len == 4+4+(3+2)+4+(7+2)+4+(3+2));
+        test("Format command by passing argc/argv without lengths: ");
+        len = redisFormatCommandArgv(&cmd,argc,argv,NULL);
+        test_cond(strncmp(cmd,"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n",len) == 0 &&
+            len == 4+4+(3+2)+4+(3+2)+4+(3+2));
+        free(cmd);
+
+        test("Format command by passing argc/argv with lengths: ");
+        len = redisFormatCommandArgv(&cmd,argc,argv,lens);
+        test_cond(strncmp(cmd,"*3\r\n$3\r\nSET\r\n$7\r\nfoo\0xxx\r\n$3\r\nbar\r\n",len) == 0 &&
+            len == 4+4+(3+2)+4+(7+2)+4+(3+2));
+    }
+
     free(cmd);
 }
 
@@ -299,20 +313,23 @@ static void test_blocking_connection_errors(void) {
     test("Returns error when the port is not open: ");
     c = redisConnect((char*)"localhost", 1);
     test_cond(c->err == REDIS_ERR_IO &&
-        strcmp(c->errstr,"Connection refused") == 0);
+        (strcmp(c->errstr,"Connection refused") == 0) ||
+        strcmp(c->errstr,"select: Connection refused") == 0);
     redisFree(c);
 
+#if !defined(_WIN32)
     test("Returns error when the unix socket path doesn't accept connections: ");
     c = redisConnectUnix((char*)"/tmp/idontexist.sock");
     test_cond(c->err == REDIS_ERR_IO); /* Don't care about the message... */
     redisFree(c);
+#endif
 }
 
 static void test_blocking_connection(struct config config) {
     redisContext *c;
     redisReply *reply;
 
-    c = connect(config);
+    c = connect_test(config);
 
     test("Is able to deliver commands: ");
     reply = redisCommand(c,"PING");
@@ -393,7 +410,7 @@ static void test_blocking_io_errors(struct config config) {
     int major, minor;
 
     /* Connect to target given by config. */
-    c = connect(config);
+    c = connect_test(config);
     {
         /* Find out Redis version to determine the path for the next test */
         const char *field = "redis_version:";
@@ -428,13 +445,15 @@ static void test_blocking_io_errors(struct config config) {
         strcmp(c->errstr,"Server closed the connection") == 0);
     redisFree(c);
 
-    c = connect(config);
-    test("Returns I/O error on socket timeout: ");
-    struct timeval tv = { 0, 1000 };
-    assert(redisSetTimeout(c,tv) == REDIS_OK);
-    test_cond(redisGetReply(c,&_reply) == REDIS_ERR &&
-        c->err == REDIS_ERR_IO && errno == EAGAIN);
-    redisFree(c);
+    {
+        struct timeval tv = { 0, 1000 };
+        c = connect_test(config);
+        test("Returns I/O error on socket timeout: ");
+        assert(redisSetTimeout(c,tv) == REDIS_OK);
+        test_cond(redisGetReply(c,&_reply) == REDIS_ERR &&
+            c->err == REDIS_ERR_IO && errno == EAGAIN);
+        redisFree(c);
+    }
 }
 
 static void test_invalid_timeout_errors(struct config config) {
@@ -462,7 +481,7 @@ static void test_invalid_timeout_errors(struct config config) {
 }
 
 static void test_throughput(struct config config) {
-    redisContext *c = connect(config);
+    redisContext *c = connect_test(config);
     redisReply **replies;
     int i, num;
     long long t1, t2;
@@ -626,19 +645,22 @@ static void test_throughput(struct config config) {
 // }
 
 int main(int argc, char **argv) {
-    struct config cfg = {
-        .tcp = {
-            .host = "127.0.0.1",
-            .port = 6379
-        },
-        .unix = {
-            .path = "/tmp/redis.sock"
-        }
-    };
+    struct config cfg;
     int throughput = 1;
 
+    if (hiredis_win_init() != 0) {
+        fprintf(stderr, "Failed to init win32 sockets");
+        exit(-1);
+    }
+
+    cfg.tcp.host = "127.0.0.1";
+    cfg.tcp.port = 6379;
+    cfg.unix.path = "/tmp/redis.sock";
+
+#if !defined(_WIN32)
     /* Ignore broken pipe signal (for I/O error tests). */
     signal(SIGPIPE, SIG_IGN);
+#endif
 
     /* Parse command line options. */
     argv++; argc--;
@@ -672,11 +694,13 @@ int main(int argc, char **argv) {
     test_invalid_timeout_errors(cfg);
     if (throughput) test_throughput(cfg);
 
+#if !defined(_WIN32)
     printf("\nTesting against Unix socket connection (%s):\n", cfg.unix.path);
     cfg.type = CONN_UNIX;
     test_blocking_connection(cfg);
     test_blocking_io_errors(cfg);
     if (throughput) test_throughput(cfg);
+#endif
 
     if (fails) {
         printf("*** %d TESTS FAILED ***\n", fails);

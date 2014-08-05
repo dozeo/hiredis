@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "system_diff.h"
 #include "sds.h"
 
 #ifdef SDS_ABORT_ON_OOM

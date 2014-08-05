@@ -36,6 +36,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include "system_diff.h"
 #include "async.h"
 #include "net.h"
 #include "dict.c"
@@ -66,8 +67,8 @@ static unsigned int callbackHash(const void *key) {
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
-    ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+    ((void) privdata);
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }
@@ -164,6 +165,7 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     return ac;
 }
 
+#if !defined(_WIN32)
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c;
     redisAsyncContext *ac;
@@ -176,6 +178,7 @@ redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     __redisAsyncCopyError(ac);
     return ac;
 }
+#endif
 
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn) {
     if (ac->onConnect == NULL) {
