@@ -32,11 +32,11 @@ struct config {
         const char *host;
         int port;
         struct timeval timeout;
-    } tcp;
+    } tcp_conn;
 
     struct {
         const char *path;
-    } unix;
+    } unix_conn;
 };
 
 /* The following lines make up our testing "framework" :) */
@@ -91,10 +91,10 @@ static redisContext *connect_test(struct config config) {
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
-        c = redisConnect(config.tcp.host, config.tcp.port);
+        c = redisConnect(config.tcp_conn.host, config.tcp_conn.port);
 #if !defined(_WIN32)
     } else if (config.type == CONN_UNIX) {
-        c = redisConnectUnix(config.unix.path);
+        c = redisConnectUnix(config.unix_conn.path);
 #endif
     } else {
         assert(NULL);
@@ -461,19 +461,19 @@ static void test_invalid_timeout_errors(struct config config) {
 
     test("Set error when an invalid timeout usec value is given to redisConnectWithTimeout: ");
 
-    config.tcp.timeout.tv_sec = 0;
-    config.tcp.timeout.tv_usec = 10000001;
+    config.tcp_conn.timeout.tv_sec = 0;
+    config.tcp_conn.timeout.tv_usec = 10000001;
 
-    c = redisConnectWithTimeout(config.tcp.host, config.tcp.port, config.tcp.timeout);
+    c = redisConnectWithTimeout(config.tcp_conn.host, config.tcp_conn.port, config.tcp_conn.timeout);
 
     test_cond(c->err == REDIS_ERR_IO);
 
     test("Set error when an invalid timeout sec value is given to redisConnectWithTimeout: ");
 
-    config.tcp.timeout.tv_sec = (((LONG_MAX) - 999) / 1000) + 1;
-    config.tcp.timeout.tv_usec = 0;
+    config.tcp_conn.timeout.tv_sec = (((LONG_MAX) - 999) / 1000) + 1;
+    config.tcp_conn.timeout.tv_usec = 0;
 
-    c = redisConnectWithTimeout(config.tcp.host, config.tcp.port, config.tcp.timeout);
+    c = redisConnectWithTimeout(config.tcp_conn.host, config.tcp_conn.port, config.tcp_conn.timeout);
 
     test_cond(c->err == REDIS_ERR_IO);
 
@@ -648,14 +648,16 @@ int main(int argc, char **argv) {
     struct config cfg;
     int throughput = 1;
 
+#if defined(_WIN32)
     if (hiredis_win_init() != 0) {
         fprintf(stderr, "Failed to init win32 sockets");
         exit(-1);
     }
+#endif
 
-    cfg.tcp.host = "127.0.0.1";
-    cfg.tcp.port = 6379;
-    cfg.unix.path = "/tmp/redis.sock";
+    cfg.tcp_conn.host = "127.0.0.1";
+    cfg.tcp_conn.port = 6379;
+    cfg.unix_conn.path = "/tmp/redis.sock";
 
 #if !defined(_WIN32)
     /* Ignore broken pipe signal (for I/O error tests). */
@@ -667,13 +669,13 @@ int main(int argc, char **argv) {
     while (argc) {
         if (argc >= 2 && !strcmp(argv[0],"-h")) {
             argv++; argc--;
-            cfg.tcp.host = argv[0];
+            cfg.tcp_conn.host = argv[0];
         } else if (argc >= 2 && !strcmp(argv[0],"-p")) {
             argv++; argc--;
-            cfg.tcp.port = atoi(argv[0]);
+            cfg.tcp_conn.port = atoi(argv[0]);
         } else if (argc >= 2 && !strcmp(argv[0],"-s")) {
             argv++; argc--;
-            cfg.unix.path = argv[0];
+            cfg.unix_conn.path = argv[0];
         } else if (argc >= 1 && !strcmp(argv[0],"--skip-throughput")) {
             throughput = 0;
         } else {
@@ -687,7 +689,7 @@ int main(int argc, char **argv) {
     test_reply_reader();
     test_blocking_connection_errors();
 
-    printf("\nTesting against TCP connection (%s:%d):\n", cfg.tcp.host, cfg.tcp.port);
+    printf("\nTesting against TCP connection (%s:%d):\n", cfg.tcp_conn.host, cfg.tcp_conn.port);
     cfg.type = CONN_TCP;
     test_blocking_connection(cfg);
     test_blocking_io_errors(cfg);
@@ -695,7 +697,7 @@ int main(int argc, char **argv) {
     if (throughput) test_throughput(cfg);
 
 #if !defined(_WIN32)
-    printf("\nTesting against Unix socket connection (%s):\n", cfg.unix.path);
+    printf("\nTesting against Unix socket connection (%s):\n", cfg.unix_conn.path);
     cfg.type = CONN_UNIX;
     test_blocking_connection(cfg);
     test_blocking_io_errors(cfg);

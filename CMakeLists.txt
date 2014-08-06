@@ -46,8 +46,12 @@ target_link_libraries(hiredis ${system_libs})
 
 list(APPEND test_src
 	"test.c"
-	"win32.c"
 	)
+
+if(WIN32)
+	list(APPEND test_src
+		"win32.c")
+endif()
 
 add_executable(hiredis_test ${test_src})
 set_target_properties(hiredis_test PROPERTIES

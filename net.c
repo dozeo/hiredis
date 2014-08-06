@@ -49,6 +49,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <poll.h>
+#include <sys/time.h>
 #else
 # include <winsock2.h>
 # include <ws2tcpip.h>
@@ -270,7 +271,7 @@ int redisContextSetTimeout(redisContext *c, struct timeval tv) {
 #if defined(_WIN32)
     DWORD val = tv.tv_usec;
 #else
-    struct timeval& val = tv;
+    struct timeval val = tv;
 #endif
     if (setsockopt(c->fd,SOL_SOCKET,SO_RCVTIMEO, wrap_sockopt(&val), sizeof(val)) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(SO_RCVTIMEO)");
