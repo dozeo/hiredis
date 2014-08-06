@@ -20,6 +20,10 @@ list(APPEND src
 	${public_hdrs}
 	)
 
+if(CMAKE_COMPILER_IS_GNUCXX)
+	set(CMAKE_C_FLAGS "-std=c99 -pedantic -c -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings")
+endif()
+
 list(APPEND public_inc_dir
 	"${CMAKE_CURRENT_SOURCE_DIR}")
 
