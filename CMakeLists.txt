@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 2.8)
 
 project(hiredis)
 
+option(BUILD_HIREDIS_TESTS "Build hiredis_test" ON)
+
 list(APPEND public_hdrs
-	"hiredis.h")
+	"hiredis/hiredis.h")
 
 list(APPEND src
 	"async.c"
@@ -48,16 +50,18 @@ set_target_properties(hiredis PROPERTIES
 	INTERFACE_INCLUDE_DIRECTORIES "${public_inc_dir}")
 target_link_libraries(hiredis ${system_libs})
 
-list(APPEND test_src
-	"test.c"
-	)
-
-if(WIN32)
+if(BUILD_HIREDIS_TESTS)
 	list(APPEND test_src
-		"win32.c")
-endif()
+		"test.c"
+		)
 
-add_executable(hiredis_test ${test_src})
-set_target_properties(hiredis_test PROPERTIES
-	INCLUDE_DIRECTORIES "${private_inc_dirs}")
-target_link_libraries(hiredis_test hiredis)
+	if(WIN32)
+		list(APPEND test_src
+			"win32.c")
+	endif()
+
+	add_executable(hiredis_test ${test_src})
+	set_target_properties(hiredis_test PROPERTIES
+		INCLUDE_DIRECTORIES "${private_inc_dirs}")
+	target_link_libraries(hiredis_test hiredis)
+endif()

@@ -38,7 +38,7 @@
 #include <ctype.h>
 
 #include "system_diff.h"
-#include "hiredis.h"
+#include "hiredis/hiredis.h"
 #include "net.h"
 #include "sds.h"
 
