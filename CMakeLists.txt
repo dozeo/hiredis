@@ -10,8 +10,6 @@ list(APPEND public_hdrs
 list(APPEND src
 	"async.c"
 	"async.h"
-#	"dict.c"
-#	"dict.h"
 	"fmacros.h"
 	"hiredis.c"
 	"net.c"
