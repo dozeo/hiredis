@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <limits.h>
 
-#include "hiredis.h"
+#include "hiredis/hiredis.h"
 
 #include "system_diff.h"
 
